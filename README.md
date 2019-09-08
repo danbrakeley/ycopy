@@ -2,9 +2,9 @@
 
 ## Overview
 
-This is an app for batch copying/downloading files. The list of files/urls is stored as a text file.
+This is an app for batch copying/downloading files that are specified in a newline-separated text file.
 
-I forget my original use case for this, but once I added downloading of http(s) urls, I decided to put this in a git repo.
+I forget my original use case for this, but once I added downloading from web urls, I decided to put this in a git repo and add some more features.
 
 ## Example Usage
 
@@ -16,22 +16,22 @@ Given a file `five-files.txt` that contains:
 # Here's the first local file that will be copied:
 first.file
 
-# Relative paths are allowed, and will be created in the target path if they don't exist:
+# Relative paths are allowed, and will be created in the destination path if they don't exist:
 foo\second.file
 foo\bar\third.file
 
 # Anything that begins with http:// or https:// is downloaded.
-# In these cases, source path does nothing and is ignored.
+# For remote files like these, the source path supplied on the command line unused.
 http://url.example/fourth.file
 http://url.example/path-in-url/fifth.file
 ```
 
-Then here is an example run:
+Then here is what an example run might look like:
 
 ```text
 $ pwd
 /d
-$ ycopy --list-file five-files.txt --source-path depot --target-path relative/path
+$ ycopy --src depot --dest relative/path five-files.txt
 2019/09/07 15:00:06 Starting 5 operations...
 2019/09/07 15:00:07  1: D:\relative\path\first.file
 2019/09/07 15:00:07  2: D:\relative\path\foo\second.file
@@ -40,3 +40,32 @@ $ ycopy --list-file five-files.txt --source-path depot --target-path relative/pa
 2019/09/07 15:00:08  5: D:\relative\path\path-in-url\fifth.file
 2019/09/07 15:00:08 Done.
 ```
+
+## Todo
+
+- ✓ ~~Specify threads on command line?~~
+  - ✓ ~~re-write to put copy operations in go funcs~~
+- ✓ ~~cli error display cleanup~~
+  - ✓ ~~remove all commands (help)~~
+- handle signals
+  - delete partial files
+  - cleanup threads
+- Progress Bars
+  - [Multi Progress Bar](https://github.com/vbauerster/mpb)
+  - disable w/ --no-progress
+  - Bar: Overall (based on count)
+  - Bar: Per thread
+  - how to show errors?
+  - show time so far and estimated time of completion?
+- Log files
+  - log package? logrus?
+  - customizable verbosity
+- allow flags to be set after arguments
+- interactive
+  - add thread
+  - pause
+- performance
+  - large files?
+  - memory usage?
+- skip if destination file already exists
+  - for local copies, allow time/size/other checks as well?

@@ -7,7 +7,8 @@ import (
 )
 
 type Context struct {
-	Line int
+	Filename string
+	Line     int
 }
 
 type Copier interface {
@@ -17,7 +18,7 @@ type Copier interface {
 	DisplayIntent() string
 }
 
-func MakeCopierFromString(line, sourcePath, targetPath string) (Copier, error) {
+func MakeCopierFromString(line, srcPath, destPath string) (Copier, error) {
 	switch {
 	case strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://"):
 		url, err := url.Parse(line)
@@ -26,12 +27,12 @@ func MakeCopierFromString(line, sourcePath, targetPath string) (Copier, error) {
 		}
 		return &HTTPFile{
 			url:      url,
-			destPath: filepath.Join(targetPath, url.Path),
+			destPath: filepath.Join(destPath, url.Path),
 		}, nil
 	default:
 		return &LocalFile{
-			srcPath:  filepath.Join(sourcePath, line),
-			destPath: filepath.Join(targetPath, line),
+			srcPath:  filepath.Join(srcPath, line),
+			destPath: filepath.Join(destPath, line),
 		}, nil
 	}
 }

@@ -6,14 +6,17 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
+	"github.com/danbrakeley/ycopy/copier"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
 const (
 	VersionMaj   = 0
-	VersionMin   = 1
+	VersionMin   = 2
 	VersionPatch = 0
 )
 
@@ -28,38 +31,57 @@ func main() {
 	app := cli.NewApp()
 	app.Name = "ycopy"
 	app.Version = fmt.Sprintf("%d.%d.%d", VersionMaj, VersionMin, VersionPatch)
-	app.Usage = "copy files from a list"
+	app.Usage = "copy (and/or download) files based on a newline-separated list in a text file"
+	app.ArgsUsage = "<list-file>"
+	app.HideHelp = true
 	app.Flags = []cli.Flag{
-		cli.StringFlag{Name: "list-file, l", Required: true},
-		cli.StringFlag{Name: "source-path, s"},
-		cli.StringFlag{Name: "target-path, t"},
-		cli.BoolFlag{Name: "stop-on-first-error, e"},
-		cli.BoolFlag{Name: "debug, d"},
+		cli.BoolFlag{Name: "help, h, ?", Usage: "show this message"},
+		cli.StringFlag{Name: "src", Usage: "look for local files under this path (default: current working directory)"},
+		cli.StringFlag{Name: "dest", Usage: "write files/folders under this path (default: current working directory)"},
+		cli.BoolFlag{Name: "dryrun, d", Usage: "preview work (without doing work)"},
+		cli.IntFlag{Name: "threads", Value: 1, Usage: "number of operations to perform in parallel"},
+		cli.BoolFlag{Name: "verbose", Usage: "add extra logging (for debugging)"},
 	}
 	app.Action = func(c *cli.Context) error {
-		list := c.String("list-file")
-
-		source, err := filepath.Abs(c.String("source-path"))
-		if err != nil {
-			return errors.Wrap(err, "error in source-path")
+		if c.Bool("help") {
+			cli.ShowAppHelpAndExit(c, 0)
+		}
+		args := c.Args()
+		// TODO: make this better
+		if len(args) > 1 {
+			fmt.Fprintf(os.Stderr, "Unexpected \"%s\" (options go before <list-file>, see --help)\n", strings.Join(args[1:], " "))
+			os.Exit(1)
+		}
+		list := strings.TrimSpace(args.Get(0))
+		if len(list) == 0 {
+			fmt.Fprintf(os.Stderr, "Argument <list-file> is missing, but is required.\n\n")
+			cli.ShowAppHelpAndExit(c, 1)
 		}
 
-		target, err := filepath.Abs(c.String("target-path"))
+		src, err := filepath.Abs(c.String("src"))
 		if err != nil {
-			return errors.Wrap(err, "error in target-path")
+			return errors.Wrap(err, "invalid src")
 		}
 
-		copiers, err := MakeCopiers(list, source, target)
+		dest, err := filepath.Abs(c.String("dest"))
 		if err != nil {
-			return errors.Wrapf(err, "error in %s", list)
+			return errors.Wrap(err, "invalid dest")
 		}
+
+		copiers, err := MakeCopiers(list, src, dest)
+		if err != nil {
+			return errors.Wrap(err, "invalid list file")
+		}
+
 		cfg := &Config{
-			StopOnFirstError: c.Bool("stop-on-first-error"),
-			Copiers:          copiers,
+			Threads: c.Int("threads"),
+			DryRun:  c.Bool("dryrun"),
+			Verbose: c.Bool("verbose"),
+			Copiers: copiers,
 		}
 
-		if c.Bool("debug") {
-			fmt.Printf("Stop on first error: %v\n", cfg.StopOnFirstError)
+		if cfg.DryRun {
+			fmt.Printf("Threads: %d\n", cfg.Threads)
 			fmt.Printf("Operations:\n")
 			padfmt := fmt.Sprintf(" %%%dd: %%s\n", numPlaces(len(cfg.Copiers)))
 			for i, c := range cfg.Copiers {
@@ -68,17 +90,33 @@ func main() {
 			return nil
 		}
 
-		log.Printf("Starting %d operations...", len(cfg.Copiers))
-		for i, c := range cfg.Copiers {
-			msg, err := c.Copy()
-			if err != nil {
-				if cfg.StopOnFirstError {
-					return err
-				}
-				msg = fmt.Sprintf("ERROR: %v (file from %s line %d)", err, list, c.Context().Line)
-			}
-			log.Printf(" %d: %s", i+1, msg)
+		chCopier := make(chan copier.Copier)
+		chResult := make(chan Result)
+
+		var wgCopiers sync.WaitGroup
+		wgCopiers.Add(cfg.Threads)
+		for i := 0; i < cfg.Threads; i++ {
+			go workerCopy(cfg, &wgCopiers, i+1, chCopier, chResult)
 		}
+
+		var wgResults sync.WaitGroup
+		wgResults.Add(1)
+		go workerResults(cfg, &wgResults, chResult)
+
+		log.Printf("Starting %d operations across %d threads...", len(cfg.Copiers), cfg.Threads)
+		for _, c := range cfg.Copiers {
+			chCopier <- c
+		}
+		close(chCopier)
+		if cfg.Verbose {
+			log.Printf("----- waiting for all copy threads to complete")
+		}
+		wgCopiers.Wait()
+		close(chResult)
+		if cfg.Verbose {
+			log.Printf("----- waiting for resulits thread to complete")
+		}
+		wgResults.Wait()
 
 		log.Printf("Done")
 		return nil
@@ -87,5 +125,58 @@ func main() {
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
+	}
+}
+
+type Result struct {
+	ThreadID int
+	Err      error
+	Msg      string
+	Ctx      copier.Context
+}
+
+func workerCopy(cfg *Config, wg *sync.WaitGroup, threadID int, chCopier chan copier.Copier, chResult chan Result) {
+	defer wg.Done()
+	if cfg.Verbose {
+		log.Printf("----- workerCopy %d: starting", threadID)
+	}
+	count := 0
+	for {
+		c, ok := <-chCopier
+		if !ok {
+			if cfg.Verbose {
+				log.Printf("----- workerCopy %d: closed after %d iterations", threadID, count)
+			}
+			return
+		}
+		count++
+		msg, err := c.Copy()
+		chResult <- Result{ThreadID: threadID, Err: err, Msg: msg, Ctx: c.Context()}
+	}
+}
+
+func workerResults(cfg *Config, wg *sync.WaitGroup, ch chan Result) {
+	defer wg.Done()
+	if cfg.Verbose {
+		log.Printf("----- workerResults: starting")
+	}
+	count := 0
+	for {
+		r, ok := <-ch
+		if !ok {
+			if cfg.Verbose {
+				log.Printf("----- workerResults: closed after %d iterations", count)
+			}
+			return
+		}
+		count++
+		msg := r.Msg
+		if r.Err != nil {
+			msg = fmt.Sprintf("ERROR: %v", r.Err)
+			if len(r.Msg) == 0 {
+				msg += " (" + r.Msg + ")"
+			}
+		}
+		log.Printf(" ThreadID %d; Line %d: %s", r.ThreadID, r.Ctx.Line, msg)
 	}
 }

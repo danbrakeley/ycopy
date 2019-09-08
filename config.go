@@ -10,14 +10,16 @@ import (
 )
 
 type Config struct {
-	StopOnFirstError bool
-	Copiers          []copier.Copier
+	Threads int
+	DryRun  bool
+	Verbose bool
+	Copiers []copier.Copier
 }
 
-func MakeCopiers(listFile, sourcePath, targetPath string) ([]copier.Copier, error) {
+func MakeCopiers(listFile, srcPath, destPath string) ([]copier.Copier, error) {
 	f, err := os.Open(listFile)
 	if err != nil {
-		return nil, errors.Wrapf(err, "unable to open %s", listFile)
+		return nil, err
 	}
 	defer f.Close()
 
@@ -35,11 +37,11 @@ func MakeCopiers(listFile, sourcePath, targetPath string) ([]copier.Copier, erro
 		if len(line) == 0 {
 			continue
 		}
-		c, err := copier.MakeCopierFromString(line, sourcePath, targetPath)
+		c, err := copier.MakeCopierFromString(line, srcPath, destPath)
 		if err != nil {
 			return nil, errors.Wrapf(err, "line %d", curLine)
 		}
-		c.SetContext(copier.Context{Line: curLine})
+		c.SetContext(copier.Context{Filename: listFile, Line: curLine})
 		copiers = append(copiers, c)
 	}
 
