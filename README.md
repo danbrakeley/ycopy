@@ -48,8 +48,8 @@ $ ycopy --src depot --dest relative/path five-files.txt
 - ✓ ~~cli error display cleanup~~
   - ✓ ~~remove all commands (help)~~
 - handle signals
-  - delete partial files
-  - cleanup threads
+  - ✓ ~~on ctrl-c, stop feeding workers and wait for running actions to complete~~
+  - on second ctrl-c, abort transfers (delete partial files?)
 - Progress Bars
   - [Multi Progress Bar](https://github.com/vbauerster/mpb)
   - disable w/ --no-progress

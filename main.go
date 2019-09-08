@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,7 +18,7 @@ import (
 const (
 	VersionMaj   = 0
 	VersionMin   = 2
-	VersionPatch = 0
+	VersionPatch = 1
 )
 
 func numPlaces(n int) int {
@@ -90,6 +91,16 @@ func main() {
 			return nil
 		}
 
+		// install signal hanlder
+		chSignal := make(chan os.Signal, 1)
+		signal.Notify(chSignal, os.Interrupt)
+		signalHandler := func(s os.Signal) {
+			if cfg.Verbose {
+				log.Printf("----- got signal: %v", s)
+			}
+			log.Printf("Interrupt detected, running actions will complete, but new actions will not be started...")
+		}
+
 		chCopier := make(chan copier.Copier)
 		chResult := make(chan Result)
 
@@ -104,9 +115,23 @@ func main() {
 		go workerResults(cfg, &wgResults, chResult)
 
 		log.Printf("Starting %d operations across %d threads...", len(cfg.Copiers), cfg.Threads)
+	CopierLoop:
 		for _, c := range cfg.Copiers {
-			chCopier <- c
+			select {
+			case chCopier <- c:
+			case s := <-chSignal:
+				signalHandler(s)
+				break CopierLoop
+			}
 		}
+
+		// we're just waiting to end at this point, so an interrupt can be ignored,
+		// but the user doesn't know that, so output a consistent response.
+		go func() {
+			s := <-chSignal
+			signalHandler(s)
+		}()
+
 		close(chCopier)
 		if cfg.Verbose {
 			log.Printf("----- waiting for all copy threads to complete")
