@@ -12,7 +12,6 @@ import (
 type Config struct {
 	Threads int
 	DryRun  bool
-	Verbose bool
 	Copiers []copier.Copier
 }
 

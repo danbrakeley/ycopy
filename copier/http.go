@@ -15,40 +15,37 @@ type HTTPFile struct {
 	ctx      Context
 }
 
-func (f HTTPFile) DisplayIntent() string {
-	return fmt.Sprintf("Download from \"%s\" to \"%s\"", f.url.String(), f.destPath)
-}
-func (f *HTTPFile) SetContext(ctx Context) {
-	f.ctx = ctx
-}
-
 func (f HTTPFile) Context() Context {
 	return f.ctx
 }
 
-func (f HTTPFile) Copy() (msg string, err error) {
-	if err = os.MkdirAll(filepath.Dir(f.destPath), os.ModePerm); err != nil {
-		return
+func (f *HTTPFile) SetContext(ctx Context) {
+	f.ctx = ctx
+}
+
+func (f HTTPFile) DebugPrint() string {
+	return fmt.Sprintf("Download from \"%s\" to \"%s\"", f.url.String(), f.destPath)
+}
+
+func (f HTTPFile) Dest() string {
+	return f.destPath
+}
+
+func (f HTTPFile) Copy() error {
+	if err := os.MkdirAll(filepath.Dir(f.destPath), os.ModePerm); err != nil {
+		return err
 	}
 
-	var isFolder bool
-	_, isFolder, err = doesFileExist(f.destPath)
+	_, isFolder, err := doesFileExist(f.destPath)
 	if err != nil {
-		return
+		return err
 	}
 	if isFolder {
-		err = fmt.Errorf("path exists as a folder: \"%s\"", f.destPath)
-		return
+		return fmt.Errorf("path exists as a folder: \"%s\"", f.destPath)
 	}
 
 	// DOWNLOAD FILE
-	err = downloadFile(f.destPath, f.url.String())
-	if err != nil {
-		return
-	}
-
-	msg = fmt.Sprintf("%s", f.destPath)
-	return
+	return downloadFile(f.destPath, f.url.String())
 }
 
 // https://golangcode.com/download-a-file-from-a-url/
@@ -62,6 +59,10 @@ func downloadFile(filepath string, url string) error {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s", resp.Status)
+	}
 
 	// Create the file
 	out, err := os.Create(filepath)

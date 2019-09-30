@@ -50,22 +50,25 @@ $ ycopy --src depot --dest relative/path five-files.txt
 - handle signals
   - ✓ ~~on ctrl-c, stop feeding workers and wait for running actions to complete~~
   - on second ctrl-c, abort transfers (delete partial files?)
-- Progress Bars
-  - [Multi Progress Bar](https://github.com/vbauerster/mpb)
-  - disable w/ --no-progress
-  - Bar: Overall (based on count)
-  - Bar: Per thread
-  - how to show errors?
-  - show time so far and estimated time of completion?
-- Log files
-  - log package? logrus?
-  - customizable verbosity
-- allow flags to be set after arguments
+- ✓ ~~properly detect http errors~~
+- ✓ ~~logger~~
+  - ✓ ~~supports ansi (when terminal connected)~~
+  - ✓ ~~supports fixed lines (for progress bars)~~
+- retries
+- print error report at end (even if ctrl-c)
+  - do not include errors that resulted in a success after retrying
+  - just list one failed file per line
+- scrape given url to generate single file list
+- progress bars
+  - per thread
+  - overall/status
+  - disable w/ --no-progress (allow colors, but just no fixed log lines)
+- allow flags to be set after arguments?
 - interactive
   - add thread
   - pause
-- performance
-  - large files?
-  - memory usage?
 - skip if destination file already exists
   - for local copies, allow time/size/other checks as well?
+- performance - anecdotal evidence says it is plenty fast, but what about slower media?
+  - large files?
+  - memory usage?

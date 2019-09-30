@@ -12,10 +12,12 @@ type Context struct {
 }
 
 type Copier interface {
-	Copy() (msg string, err error)
-	SetContext(ctx Context)
 	Context() Context
-	DisplayIntent() string
+	SetContext(ctx Context)
+
+	Copy() error
+	Dest() string
+	DebugPrint() string
 }
 
 func MakeCopierFromString(line, srcPath, destPath string) (Copier, error) {
