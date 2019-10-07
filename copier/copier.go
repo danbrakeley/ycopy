@@ -15,7 +15,8 @@ type Copier interface {
 	Context() Context
 	SetContext(ctx Context)
 
-	Copy() error
+	Copy(wp *WriteProgress) error
+	BytesWritten() uint64
 	Dest() string
 	DebugPrint() string
 }

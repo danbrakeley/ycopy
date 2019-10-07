@@ -24,20 +24,20 @@ func doesFileExist(path string) (exists, isFolder bool, err error) {
 	return
 }
 
-// https://stackoverflow.com/questions/21060945/simple-way-to-copy-a-file-in-golang
-// copyFileContents copies the contents of the file named src to the file named
-// by dst. The file will be created if it does not already exist. If the
-// destination file exists, all it's contents will be replaced by the contents
-// of the source file.
-func copyFileContents(src, dst string) (err error) {
+// copyFileContents copies the contents of the file named src to the file named by dst. The file
+// will be created if it does not already exist. If the destination file exists, all it's contents
+// will be replaced by the contents of the source file.
+// Inspired by: https://stackoverflow.com/questions/21060945/simple-way-to-copy-a-file-in-golang
+func copyFileContents(src, dst string, wp *WriteProgress) error {
+	var err error
 	in, err := os.Open(src)
 	if err != nil {
-		return
+		return err
 	}
 	defer in.Close()
 	out, err := os.Create(dst)
 	if err != nil {
-		return
+		return err
 	}
 	defer func() {
 		cerr := out.Close()
@@ -45,9 +45,18 @@ func copyFileContents(src, dst string) (err error) {
 			err = cerr
 		}
 	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return
+	if wp != nil {
+		fi, err := in.Stat()
+		if err != nil {
+			return err
+		}
+		wp.SetGoal(uint64(fi.Size()))
+		_, err = io.Copy(out, io.TeeReader(in, wp))
+	} else {
+		_, err = io.Copy(out, in)
 	}
-	err = out.Sync()
-	return
+	if err != nil {
+		return err
+	}
+	return out.Sync()
 }

@@ -9,16 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/danbrakeley/frog"
 	"github.com/danbrakeley/ycopy/copier"
-	"github.com/danbrakeley/ycopy/frog"
+	"github.com/dustin/go-humanize"
 	"github.com/urfave/cli"
 )
 
 const (
 	VersionMaj   = 0
 	VersionMin   = 2
-	VersionPatch = 1
+	VersionPatch = 2
 )
 
 func numPlaces(n int) int {
@@ -105,6 +107,8 @@ func main() {
 			return nil
 		}
 
+		log.Infof("Starting %d operations across %d threads...", len(cfg.Copiers), cfg.Threads)
+
 		// install signal hanlder
 		chSignal := make(chan os.Signal, 1)
 		signal.Notify(chSignal, os.Interrupt)
@@ -114,19 +118,19 @@ func main() {
 		}
 
 		chCopier := make(chan copier.Copier)
-		chResult := make(chan Result)
 
-		var wgCopiers sync.WaitGroup
-		wgCopiers.Add(cfg.Threads)
+		var wg sync.WaitGroup
+		wg.Add(cfg.Threads)
 		for i := 0; i < cfg.Threads; i++ {
-			go workerCopy(log, cfg, &wgCopiers, i+1, chCopier, chResult)
+			threadID := i + 1
+			ll := log.AddFixedLine()
+			go func() {
+				workerCopy(ll, cfg, threadID, chCopier)
+				ll.Close()
+				wg.Done()
+			}()
 		}
 
-		var wgResults sync.WaitGroup
-		wgResults.Add(1)
-		go workerResults(log, cfg, &wgResults, chResult)
-
-		log.Infof("Starting %d operations across %d threads...", len(cfg.Copiers), cfg.Threads)
 	CopierLoop:
 		for _, c := range cfg.Copiers {
 			select {
@@ -146,10 +150,7 @@ func main() {
 
 		close(chCopier)
 		log.Verbosef("waiting for copy threads to complete")
-		wgCopiers.Wait()
-		close(chResult)
-		log.Verbosef("waiting for results thread to complete")
-		wgResults.Wait()
+		wg.Wait()
 
 		log.Infof("Done")
 		return nil
@@ -161,51 +162,32 @@ func main() {
 	}
 }
 
-type Result struct {
-	ThreadID int
-	Err      error
-	Msg      string
-	Ctx      copier.Context
-}
-
-func workerCopy(
-	log frog.Logger, cfg *Config, wg *sync.WaitGroup, threadID int,
-	chCopier chan copier.Copier, chResult chan Result,
-) {
-	defer wg.Done()
+func workerCopy(log frog.Logger, cfg *Config, threadID int, chCopier chan copier.Copier) {
 	log.Verbosef("workerCopy %d: starting", threadID)
 	count := 0
 	for {
 		c, ok := <-chCopier
 		if !ok {
-			log.Verbosef("workerCopy %d: closed after %d iterations", threadID, count)
-			return
+			break
 		}
 		count++
-		chResult <- Result{
-			ThreadID: threadID,
-			Err:      c.Copy(),
-			Msg:      c.Dest(),
-			Ctx:      c.Context(),
-		}
-	}
-}
+		log.Progressf("[%d] Copying %s...", threadID, c.Dest())
 
-func workerResults(log frog.Logger, cfg *Config, wg *sync.WaitGroup, ch chan Result) {
-	defer wg.Done()
-	log.Verbosef("workerResults: starting")
-	count := 0
-	for {
-		r, ok := <-ch
-		if !ok {
-			log.Verbosef("workerResults: closed after %d iterations", count)
-			return
+		wl := copier.NewWriteProgress(
+			time.Duration(100)*time.Millisecond,
+			func(n, goal uint64) {
+				log.Progressf("[%d] %s: %s / %s (%.1f%%)", threadID, c.Dest(),
+					humanize.Bytes(n), humanize.Bytes(goal), 100.0*float64(n)/float64(goal))
+			},
+		)
+		err := c.Copy(&wl)
+		if err != nil {
+			ctx := c.Context()
+			log.Errorf("[%d] %v (%s:%d)", threadID, err, ctx.Filename, ctx.Line)
+			continue
 		}
-		count++
-		if r.Err != nil {
-			log.Errorf(" ThreadID %d; Line %d: %v", r.ThreadID, r.Ctx.Line, r.Err)
-		} else {
-			log.Infof(" ThreadID %d; Line %d: %s", r.ThreadID, r.Ctx.Line, r.Msg)
-		}
+
+		log.Infof("[%d] Done writing %s (%s)", threadID, c.Dest(), humanize.Bytes(c.BytesWritten()))
 	}
+	log.Verbosef("workerCopy %d: closed after %d iterations", threadID, count)
 }

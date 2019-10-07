@@ -59,8 +59,9 @@ $ ycopy --src depot --dest relative/path five-files.txt
   - do not include errors that resulted in a success after retrying
   - just list one failed file per line
 - scrape given url to generate single file list
-- progress bars
-  - per thread
+- progress
+  - ✓ ~~per thread~~
+  - ✓ ~~display progress in bytes~~
   - overall/status
   - disable w/ --no-progress (allow colors, but just no fixed log lines)
 - allow flags to be set after arguments?

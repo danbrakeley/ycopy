@@ -10,9 +10,10 @@ type LocalFile struct {
 	srcPath  string
 	destPath string
 	ctx      Context
+	total    uint64
 }
 
-func (f LocalFile) Context() Context {
+func (f *LocalFile) Context() Context {
 	return f.ctx
 }
 
@@ -20,15 +21,19 @@ func (f *LocalFile) SetContext(ctx Context) {
 	f.ctx = ctx
 }
 
-func (f LocalFile) DebugPrint() string {
+func (f *LocalFile) DebugPrint() string {
 	return fmt.Sprintf("Copy from \"%s\" to \"%s\"", f.srcPath, f.destPath)
 }
 
-func (f LocalFile) Dest() string {
+func (f *LocalFile) Dest() string {
 	return f.destPath
 }
 
-func (f LocalFile) Copy() error {
+func (f *LocalFile) BytesWritten() uint64 {
+	return f.total
+}
+
+func (f *LocalFile) Copy(wp *WriteProgress) error {
 	if exists, isFolder, err := doesFileExist(f.srcPath); err != nil {
 		return err
 	} else if isFolder {
@@ -47,5 +52,7 @@ func (f LocalFile) Copy() error {
 		return fmt.Errorf("path exists as a folder: \"%s\"", f.destPath)
 	}
 
-	return copyFileContents(f.srcPath, f.destPath)
+	err := copyFileContents(f.srcPath, f.destPath, wp)
+	f.total = wp.BytesWritten()
+	return err
 }
