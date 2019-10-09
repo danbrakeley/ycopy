@@ -20,7 +20,7 @@ import (
 const (
 	VersionMaj   = 0
 	VersionMin   = 2
-	VersionPatch = 2
+	VersionPatch = 3
 )
 
 func numPlaces(n int) int {
@@ -31,7 +31,7 @@ func numPlaces(n int) int {
 }
 
 func main() {
-	log := frog.New()
+	log := frog.New(frog.Auto)
 	defer log.Close()
 	actualHelpPrinter := cli.HelpPrinter
 	cli.HelpPrinter = func(w io.Writer, templ string, data interface{}) {
@@ -123,7 +123,7 @@ func main() {
 		wg.Add(cfg.Threads)
 		for i := 0; i < cfg.Threads; i++ {
 			threadID := i + 1
-			ll := log.AddFixedLine()
+			ll := frog.AddFixedLine(log)
 			go func() {
 				workerCopy(ll, cfg, threadID, chCopier)
 				ll.Close()
@@ -171,12 +171,12 @@ func workerCopy(log frog.Logger, cfg *Config, threadID int, chCopier chan copier
 			break
 		}
 		count++
-		log.Progressf("[%d] Copying %s...", threadID, c.Dest())
+		log.Transientf("[%d] Copying %s...", threadID, c.Dest())
 
 		wl := copier.NewWriteProgress(
 			time.Duration(100)*time.Millisecond,
 			func(n, goal uint64) {
-				log.Progressf("[%d] %s: %s / %s (%.1f%%)", threadID, c.Dest(),
+				log.Transientf("[%d] %s: %s / %s (%.1f%%)", threadID, c.Dest(),
 					humanize.Bytes(n), humanize.Bytes(goal), 100.0*float64(n)/float64(goal))
 			},
 		)
