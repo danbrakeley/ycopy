@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,13 +21,6 @@ const (
 	VersionMin   = 2
 	VersionPatch = 3
 )
-
-func numPlaces(n int) int {
-	if n == 0 {
-		return 1
-	}
-	return int(math.Log10(math.Abs(float64(n)))) + 1
-}
 
 func main() {
 	log := frog.New(frog.Auto)
@@ -64,30 +56,30 @@ func main() {
 
 		args := c.Args()
 		if len(args) > 1 {
-			log.Errorf("Unexpected \"%s\" (options go before <list-file>, see --help)", strings.Join(args[1:], " "))
+			log.Error("Unexpected arguments (options go before <list-file>, see --help)", frog.String("args", strings.Join(args[1:], " ")))
 			cli.ShowAppHelpAndExit(c, 1)
 		}
 		list := strings.TrimSpace(args.Get(0))
 		if len(list) == 0 {
-			log.Errorf("Argument <list-file> is missing, but is required.")
+			log.Error("Argument <list-file> is missing, but is required.")
 			cli.ShowAppHelpAndExit(c, 1)
 		}
 
 		src, err := filepath.Abs(c.String("src"))
 		if err != nil {
-			log.Errorf("option <src>: %v", err)
+			log.Error("problem with --src", frog.Err(err))
 			cli.ShowAppHelpAndExit(c, 1)
 		}
 
 		dest, err := filepath.Abs(c.String("dest"))
 		if err != nil {
-			log.Errorf("option <dest>: %v", err)
+			log.Error("problem with --dest", frog.Err(err))
 			cli.ShowAppHelpAndExit(c, 1)
 		}
 
 		copiers, err := MakeCopiers(list, src, dest)
 		if err != nil {
-			log.Errorf("%v", err)
+			log.Error("problem with list-file", frog.Err(err), frog.String("list_file", list), frog.String("src", src), frog.String("dest", dest))
 			cli.ShowAppHelpAndExit(c, 1)
 		}
 
@@ -98,23 +90,21 @@ func main() {
 		}
 
 		if cfg.DryRun {
-			log.Infof("Threads: %d\n", cfg.Threads)
-			log.Infof("Operations:\n")
-			padfmt := fmt.Sprintf(" %%%dd: %%s\n", numPlaces(len(cfg.Copiers)))
+			log.Info("dry run", frog.Int("num_threads", cfg.Threads), frog.Int("num_ops", len(cfg.Copiers)))
 			for i, c := range cfg.Copiers {
-				log.Infof(padfmt, i, c.DebugPrint())
+				log.Info("", frog.Int("num", i), frog.String("op", c.DebugPrint()))
 			}
 			return nil
 		}
 
-		log.Infof("Starting %d operations across %d threads...", len(cfg.Copiers), cfg.Threads)
+		log.Info("Starting...", frog.Int("num_threads", cfg.Threads), frog.Int("num_ops", len(cfg.Copiers)))
 
 		// install signal hanlder
 		chSignal := make(chan os.Signal, 1)
 		signal.Notify(chSignal, os.Interrupt)
 		signalHandler := func(s os.Signal) {
-			log.Verbosef("got signal: %v", s)
-			log.Warningf("Interrupt detected, running actions will complete, but new actions will not be started...")
+			log.Verbose("got signal", frog.String("signal", s.String()))
+			log.Warning("Interrupt detected, running actions will complete, but new actions will not be started...")
 		}
 
 		chCopier := make(chan copier.Copier)
@@ -149,21 +139,21 @@ func main() {
 		}()
 
 		close(chCopier)
-		log.Verbosef("waiting for copy threads to complete")
+		log.Verbose("waiting for copy threads to complete")
 		wg.Wait()
 
-		log.Infof("Done")
+		log.Info("Done")
 		return nil
 	}
 
 	err := app.Run(os.Args)
 	if err != nil {
-		log.Fatalf("%v", err)
+		log.Fatal("aborting due to error", frog.Err(err))
 	}
 }
 
 func workerCopy(log frog.Logger, cfg *Config, threadID int, chCopier chan copier.Copier) {
-	log.Verbosef("workerCopy %d: starting", threadID)
+	log.Verbose("worker thread starting", frog.Int("thread", threadID))
 	count := 0
 	for {
 		c, ok := <-chCopier
@@ -171,23 +161,33 @@ func workerCopy(log frog.Logger, cfg *Config, threadID int, chCopier chan copier
 			break
 		}
 		count++
-		log.Transientf("[%d] Copying %s...", threadID, c.Dest())
+		log.Transient(fmt.Sprintf(" + [%d] Copying %s...", threadID, c.Dest()))
 
 		wl := copier.NewWriteProgress(
 			time.Duration(100)*time.Millisecond,
 			func(n, goal uint64) {
-				log.Transientf("[%d] %s: %s / %s (%.1f%%)", threadID, c.Dest(),
-					humanize.Bytes(n), humanize.Bytes(goal), 100.0*float64(n)/float64(goal))
+				log.Transient(fmt.Sprintf(" + [%d] %s: %s / %s (%.1f%%)", threadID, c.Dest(),
+					humanize.Bytes(n), humanize.Bytes(goal), 100.0*float64(n)/float64(goal)))
 			},
 		)
 		err := c.Copy(&wl)
 		if err != nil {
 			ctx := c.Context()
-			log.Errorf("[%d] %v (%s:%d)", threadID, err, ctx.Filename, ctx.Line)
+			log.Error("error during copy",
+				frog.Int("thread", threadID),
+				frog.Err(err),
+				frog.String("file", ctx.Filename),
+				frog.Int("line", ctx.Line),
+			)
 			continue
 		}
 
-		log.Infof("[%d] Done writing %s (%s)", threadID, c.Dest(), humanize.Bytes(c.BytesWritten()))
+		log.Info("File complete",
+			frog.Int("thread", threadID),
+			frog.String("dest", c.Dest()),
+			frog.Uint64("bytes", c.BytesWritten()),
+			frog.String("bytes_human", humanize.Bytes(c.BytesWritten())),
+		)
 	}
-	log.Verbosef("workerCopy %d: closed after %d iterations", threadID, count)
+	log.Verbose("worker thread closing", frog.Int("thread", threadID), frog.Int("iterations", count))
 }
