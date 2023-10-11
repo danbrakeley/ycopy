@@ -2,6 +2,7 @@ package copier
 
 import (
 	"io"
+	"io/fs"
 	"os"
 )
 
@@ -46,7 +47,8 @@ func copyFileContents(src, dst string, wp *WriteProgress) error {
 		}
 	}()
 	if wp != nil {
-		fi, err := in.Stat()
+		var fi fs.FileInfo
+		fi, err = in.Stat()
 		if err != nil {
 			return err
 		}

@@ -19,7 +19,7 @@ import (
 const (
 	VersionMaj   = 0
 	VersionMin   = 3
-	VersionPatch = 0
+	VersionPatch = 1
 )
 
 func main() {
