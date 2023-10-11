@@ -18,11 +18,22 @@ import (
 
 const (
 	VersionMaj   = 0
-	VersionMin   = 2
-	VersionPatch = 3
+	VersionMin   = 3
+	VersionPatch = 0
 )
 
 func main() {
+	status := mainExit()
+	if status != 0 {
+		// From os/proc.go: "For portability, the status code should be in the range [0, 125]."
+		if status < 0 || status > 125 {
+			status = 125
+		}
+		os.Exit(status)
+	}
+}
+
+func mainExit() int {
 	log := frog.New(frog.Auto)
 	defer log.Close()
 	actualHelpPrinter := cli.HelpPrinter
@@ -113,10 +124,10 @@ func main() {
 		wg.Add(cfg.Threads)
 		for i := 0; i < cfg.Threads; i++ {
 			threadID := i + 1
-			ll := frog.AddFixedLine(log)
+			ll := frog.AddAnchor(log)
 			go func() {
 				workerCopy(ll, cfg, threadID, chCopier)
-				ll.Close()
+				frog.RemoveAnchor(ll)
 				wg.Done()
 			}()
 		}
@@ -148,8 +159,11 @@ func main() {
 
 	err := app.Run(os.Args)
 	if err != nil {
-		log.Fatal("aborting due to error", frog.Err(err))
+		log.Error("aborting due to error", frog.Err(err))
+		return 1
 	}
+
+	return 0
 }
 
 func workerCopy(log frog.Logger, cfg *Config, threadID int, chCopier chan copier.Copier) {
